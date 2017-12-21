@@ -56,7 +56,7 @@ X_test_angle=test['inc_angle']
 
 X_band_1=np.array([np.array(band).astype(np.float32).reshape(75,75)for band in train['band_1']])
 X_band_2=np.array([np.array(band).astype(np.float32).reshape(75,75)for band in train['band_2']])
-X_band_3=(X_band_1+X_band_2)/2
+X_band_3=(X_band_1+X_band_2)/2#三层，一层band1，一层band2，一层取平均
 #X_band_3=np.array([np.full((75,75),angel).astype(np.float32)for angel in train['inc_angle']])
 X_train=np.concatenate([X_band_1[:,:,:,np.newaxis],X_band_2[:,:,:,np.newaxis],X_band_3[:,:,:,np.newaxis]],axis=-1)
 X_band_test_1=np.array([np.array(band).astype(np.float32).reshape(75,75)for band in test['band_1']])
@@ -96,7 +96,7 @@ def gen_flow_for_two_inputs(X1,X2,y):#好像产生一个无限循环的
     while True:
         X1i=genX1.next()
         X2i=genX2.next()
-        yield[X1i[0],X2i[1]],X1i[1]
+        yield[X1i[0],X2i[1]],X1i[1]#（输入1，输入2，y#好像是生成26个，如果对所有训练集的话，
 
 def get_callbacks(filepath,patience=2):
     es=EarlyStopping('val_loss',patience=10,mode='min')
@@ -127,14 +127,14 @@ def getVggAngleModel():
     
     
 def myAngleCV(X_train,X_angle,X_test):
-    K=3
+    K=5
     folds=list(StratifiedKFold(n_splits=K,shuffle=True,random_state=16).split(X_train,target_train))
     y_test_pred_log=0
     y_train_pred_log=0
     y_valid_pred_log=0.0*target_train
     for j,(train_idx,test_idx)in enumerate(folds):
         print('\n==============FOLD=',j)
-        X_train_cv=X_train[train_idx]
+        X_train_cv=X_train[train_idx]#训练集，验证集
         Y_train_cv=target_train[train_idx]
         X_holdout=X_train[test_idx]
         Y_holdout=target_train[test_idx]
@@ -144,10 +144,12 @@ def myAngleCV(X_train,X_angle,X_test):
         
         file_path='%s_aug_model_weights.hdf5'%j
         callbacks=get_callbacks(filepath=file_path,patience=5)
-        gen_flow=gen_flow_for_two_inputs(X_train_cv,X_angle_cv,Y_train_cv)
+        gen_flow=gen_flow_for_two_inputs(X_train_cv,X_angle_cv,Y_train_cv)#队训练集中分出来的训练集进行操作
+        #K=3的时候，大约17*64个图像应该，好像只是随机处理了一下没有增加图片。
         galaxyModel=getVggAngleModel()
         galaxyModel.fit_generator(gen_flow,steps_per_epoch=24,epochs=100,shuffle=True,verbose=1,validation_data=([X_holdout,X_angle_hold],Y_holdout),callbacks=callbacks)
-        galaxyModel.load_weights(filepath=file_path)
+        #steps_per_epoch表示一个epoch分成多少个batch_size
+        galaxyModel.load_weights(filepath=file_path)#从HDF5文件中加载权重到当前模型，默认情况下模型结构保持不变，
         score=galaxyModel.evaluate([X_train_cv,X_angle_cv],Y_train_cv,verbose=0)
         print('train loss:',score[0])
         print('train accuracy:',score[1])
@@ -176,9 +178,11 @@ def myAngleCV(X_train,X_angle,X_test):
 
     
 submission=pd.DataFrame()
-submission['id']=test['id']  
-for i in range(5):
+submission['id']=test['id'] 
+submission['is_iceberg']=0 
+for i in range(16):#上一次是5，交叉验证K是3，结果0.16左右，然后这个还没有尝试
     np.random.seed(i)   
     preds=myAngleCV(X_train,X_angle,X_test)
-    submission['is_iceberg']=preds
-    submission.to_csv('D:\\ice\\savedata\\'+str(i)+'vgg_16.csv',index=False)
+    submission['is_iceberg']+=preds
+submission['is_iceberg']/=5
+submission.to_csv('D:\\ice\\savedata\\vgg_16_fold_5_seed_5.csv',index=False)
